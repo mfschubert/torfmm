@@ -1,30 +1,39 @@
-import torch
+"""Unit tests for the custom eigendecomposition function."""
+
 import unittest
-from fmm_torch import eig  # Assuming src/fmm_torch is in PYTHONPATH or installed
+from typing import Callable, Optional  # For type hints
+
+import torch
 import torch.autograd
 
+from fmm_torch import eig
 
-def get_real_symmetric_matrix(n, seed=None):
+
+def get_real_symmetric_matrix(n: int, seed: Optional[int] = None) -> torch.Tensor:
+    """Generate a real symmetric matrix."""
     if seed is not None:
         torch.manual_seed(seed)
-    A = torch.randn(n, n)
-    return (A + A.T) / 2
+    a_matrix = torch.randn(n, n)
+    return (a_matrix + a_matrix.T) / 2
 
 
-def get_real_nonsymmetric_matrix(n, seed=None, ensure_distinct_eigenvalues=True):
+def get_real_nonsymmetric_matrix(
+    n: int, seed: Optional[int] = None, ensure_distinct_eigenvalues: bool = True,
+) -> torch.Tensor:
+    """Generate a real non-symmetric matrix."""
     if seed is not None:
         torch.manual_seed(seed)
-    A = torch.randn(n, n)
+    a_matrix = torch.randn(n, n)
     if ensure_distinct_eigenvalues:
         # A simple way to increase chances of distinct eigenvalues for small n
         # is to make it asymmetric and add some perturbation if needed.
         # For robust distinct eigenvalues, one might need to check explicitly
         # and regenerate, but for typical tests this often suffices.
-        A = A - A.T  # Make it skew-symmetric first
-        A = A + torch.diag(torch.randn(n) * n)  # Add random diagonal
-        A = A + torch.randn(n, n) * 0.1  # Add small random perturbation
+        a_matrix = a_matrix - a_matrix.T  # Make it skew-symmetric first
+        a_matrix = a_matrix + torch.diag(torch.randn(n) * n)  # Add random diagonal
+        a_matrix = a_matrix + torch.randn(n, n) * 0.1  # Add small random perturbation
         # Check if eigenvalues are distinct enough
-        vals = torch.linalg.eigvals(A)
+        vals = torch.linalg.eigvals(a_matrix)
         for i in range(n):
             for j in range(i + 1, n):
                 if torch.isclose(vals[i], vals[j], atol=1e-4):  # Heuristic
@@ -34,55 +43,63 @@ def get_real_nonsymmetric_matrix(n, seed=None, ensure_distinct_eigenvalues=True)
                         seed=(seed if seed else 0) + i + j + 1,
                         ensure_distinct_eigenvalues=True,
                     )
-    return A
+    return a_matrix
 
 
-def get_complex_hermitian_matrix(n, seed=None):
+def get_complex_hermitian_matrix(
+    n: int, seed: Optional[int] = None,
+) -> torch.Tensor:
+    """Generate a complex Hermitian matrix."""
     if seed is not None:
         torch.manual_seed(seed)
     real_part = torch.randn(n, n)
     imag_part = torch.randn(n, n)
-    A = torch.complex(real_part, imag_part)
-    return (A + A.conj().T) / 2
+    a_matrix = torch.complex(real_part, imag_part)
+    return (a_matrix + a_matrix.conj().T) / 2
 
 
-def get_complex_symmetric_matrix(n, seed=None):
-    # Symmetric but not necessarily Hermitian
+def get_complex_symmetric_matrix(
+    n: int, seed: Optional[int] = None,
+) -> torch.Tensor:
+    """Generate a complex symmetric (but not necessarily Hermitian) matrix."""
     if seed is not None:
         torch.manual_seed(seed)
     real_part = torch.randn(n, n)
     imag_part = torch.randn(n, n)
-    A_complex = torch.complex(real_part, imag_part)
+    a_complex = torch.complex(real_part, imag_part)
     # Ensure symmetry
-    A_symmetric = (A_complex + A_complex.T) / 2
+    a_symmetric = (a_complex + a_complex.T) / 2
     # Ensure it's not Hermitian by chance for testing purposes (unless n=1)
-    if n > 1 and torch.allclose(A_symmetric, A_symmetric.conj().T):
-        A_symmetric[0, 1] = A_symmetric[0, 1] + torch.complex(
-            torch.tensor(0.5), torch.tensor(0.5)
+    if n > 1 and torch.allclose(a_symmetric, a_symmetric.conj().T):
+        a_symmetric[0, 1] = a_symmetric[0, 1] + torch.complex(
+            torch.tensor(0.5), torch.tensor(0.5),
         )
         # Ensure symmetry is maintained after the change
-        A_symmetric[1, 0] = A_symmetric[0, 1]
-    return A_symmetric
+        a_symmetric[1, 0] = a_symmetric[0, 1]
+    return a_symmetric
 
 
-def get_complex_nonsymmetric_matrix(n, seed=None, ensure_distinct_eigenvalues=True):
+def get_complex_nonsymmetric_matrix(
+    n: int, seed: Optional[int] = None, ensure_distinct_eigenvalues: bool = True,
+) -> torch.Tensor:
+    """Generate a complex non-symmetric matrix."""
     if seed is not None:
         torch.manual_seed(seed)
     real_part = torch.randn(n, n)
     imag_part = torch.randn(n, n)
-    A = torch.complex(real_part, imag_part)
+    a_matrix = torch.complex(real_part, imag_part)
 
     if ensure_distinct_eigenvalues:
         # Similar heuristic as for real non-symmetric
-        A = A - A.T  # Make it skew-symmetric first (complex)
-        A = A + torch.diag(
-            torch.complex(torch.randn(n) * n, torch.randn(n) * n)
+        a_matrix = a_matrix - a_matrix.T  # Make it skew-symmetric first (complex)
+        a_matrix = a_matrix + torch.diag(
+            torch.complex(torch.randn(n) * n, torch.randn(n) * n),
         )  # Add random complex diagonal
-        A = (
-            A + torch.complex(torch.randn(n, n), torch.randn(n, n)) * 0.1
+        a_matrix = (
+            a_matrix + torch.complex(torch.randn(n, n), torch.randn(n, n)) * 0.1
         )  # Add small random perturbation
         # Check if eigenvalues are distinct enough
-        vals = torch.linalg.eigvals(A)
+        vals = torch.linalg.eigvals(a_matrix)
         for i in range(n):
             for j in range(i + 1, n):
                 if torch.isclose(vals[i], vals[j], atol=1e-4):
@@ -91,93 +108,78 @@ def get_complex_nonsymmetric_matrix(n, seed=None, ensure_distinct_eigenvalues=Tr
                         seed=(seed if seed else 0) + i + j + 1,
                         ensure_distinct_eigenvalues=True,
                     )
-    return A
-
-
-# Add imports for torch.testing if needed for tests later
-# import torch.testing as tt
+    return a_matrix
 
 
 class TestRealMatrixGradients(unittest.TestCase):
+    """Tests for real matrix gradient computations."""
+
     def _test_grad(
         self,
-        A_gen_func,
-        matrix_type_str,
-        n=3,
-        seed=0,
-        ensure_distinct=True,
-        use_eigh_for_ref=False,
-    ):
+        a_gen_func: Callable,
+        matrix_type_str: str,
+        n: int = 3,
+        seed: Optional[int] = 0,
+        ensure_distinct: bool = True,
+        use_eigh_for_ref: bool = False,
+    ) -> None:
+        """Test gradients for a given real matrix type."""
         torch.manual_seed(seed)
         if (
             matrix_type_str == "real symmetric"
         ):  # get_real_symmetric_matrix doesn't take ensure_distinct
-            A = A_gen_func(n, seed=seed)
+            a_matrix = a_gen_func(n, seed=seed)
         else:
-            A = A_gen_func(n, seed=seed, ensure_distinct_eigenvalues=ensure_distinct)
-
-        A = A.to(
-            torch.float64
-        )  # Use float64 for better precision in gradcheck for real matrices
-        A.requires_grad_(True)
-
-        def func_for_eigenvalues(x_mat):
-            # Loss that sums real and imaginary parts of eigenvalues
-            return torch.sum(eig(x_mat)[0].real) + torch.sum(eig(x_mat)[0].imag)
-
-        def func_for_eigenvectors(x_mat):
-            # Loss that sums real and imaginary parts of eigenvectors
-            return torch.sum(eig(x_mat)[1].real) + torch.sum(eig(x_mat)[1].imag)
-
-        # Gradcheck for eigenvalues
-        try:
-            # For real symmetric matrices using eigh as reference, eigenvalues are
-            # real, so .imag is 0. For real non-symmetric, eigenvalues can be complex.
-            torch.autograd.gradcheck(
-                func_for_eigenvalues, A, eps=1e-6, atol=1e-4, nondet_tol=1e-5
+            a_matrix = a_gen_func(
+                n, seed=seed, ensure_distinct_eigenvalues=ensure_distinct,
             )
-            print(f"Gradcheck for eigenvalues passed for {matrix_type_str} matrix.")
-        except Exception as e:
+
+        a_matrix = a_matrix.to(torch.float64)  # For gradcheck precision
+        a_matrix.requires_grad_(True)
+
+        def func_for_eigenvalues(x_mat: torch.Tensor) -> torch.Tensor:
+            # Loss that sums real and imaginary parts of eigenvalues
+            eigenvalues, _ = eig(x_mat)
+            return torch.sum(eigenvalues.real) + torch.sum(eigenvalues.imag)
+
+        def func_for_eigenvectors(x_mat: torch.Tensor) -> torch.Tensor:
+            # Loss that sums real and imaginary parts of eigenvectors
+            _, eigenvectors = eig(x_mat)
+            return torch.sum(eigenvectors.real) + torch.sum(eigenvectors.imag)
+
+        try:
+            torch.autograd.gradcheck(
+                func_for_eigenvalues, a_matrix, eps=1e-6, atol=1e-4, nondet_tol=1e-5,
+            )
+        except RuntimeError as e:
             err_msg = f"eigenvalues failed for {matrix_type_str}"
-            print(f"Gradcheck for {err_msg} matrix: {e}")
+            # T201: print(f"Gradcheck for {err_msg} matrix: {e}")
             self.fail(f"Gradcheck for {err_msg} with error: {e}")
 
-        # Gradcheck for eigenvectors
-        # Eigenvector gradcheck is generally more sensitive.
-        # For symmetric matrices (especially with eigh), eigenvectors are orthogonal
-        # and well-behaved (if eigenvalues distinct). For non-symmetric, eigenvectors
-        # might not be orthogonal, and left/right eigenvectors differ.
-        # The provided backward function computes dL/dA (or dL/dA* for complex)
-        # `ensure_distinct` helps in getting unique eigenvectors (up to scale and phase).
+        # `ensure_distinct` helps get unique eigenvectors (up to scale/phase).
         if ensure_distinct or use_eigh_for_ref:
             try:
-                # Eigenvectors of real matrices can be complex if eigenvalues are complex.
+                # Eigenvectors of real matrices can be complex.
                 torch.autograd.gradcheck(
-                    func_for_eigenvectors, A, eps=1e-6, atol=1e-3, nondet_tol=1e-4
-                )  # Higher atol for eigenvectors
-                print(
-                    f"Gradcheck for eigenvectors passed for {matrix_type_str} matrix."
+                    func_for_eigenvectors,
+                    a_matrix,
+                    eps=1e-6,
+                    atol=1e-3,  # Higher atol for eigenvectors
+                    nondet_tol=1e-4,
                 )
-            except Exception as e:
+            except RuntimeError as e:
                 err_msg = f"eigenvectors failed for {matrix_type_str}"
-                print(
-                    f"Gradcheck for {err_msg} matrix: {e}"
-                )
-                self.fail(
-                    f"Gradcheck for {err_msg} with error: {e}"
-                )
-        else:
-            msg = (
-                f"Skipping eigenvector gradcheck for {matrix_type_str} due to "
-                "potential non-uniqueness or higher sensitivity."
-            )
-            print(msg)
+                # T201: print(f"Gradcheck for {err_msg} matrix: {e}")
+                self.fail(f"Gradcheck for {err_msg} with error: {e}")
+        # else:
+        # T201: print(
+        #         f"Skipping eigenvector gradcheck for {matrix_type_str} due to "
+        #         "potential non-uniqueness or higher sensitivity."
+        #     )
 
-    def test_real_symmetric_grads(self):
-        print("\nTesting Real Symmetric Matrix Gradients:")
-        # For symmetric, ensure_distinct is not an explicit param for the generator,
-        # but eigh (implicitly used for reference in theory) handles repeated
-        # eigenvalues correctly. Our custom eig uses torch.linalg.eig.
+    def test_real_symmetric_grads(self) -> None:
+        """Test gradients for real symmetric matrices."""
+        # T201: print("\nTesting Real Symmetric Matrix Gradients:")
         self._test_grad(
             get_real_symmetric_matrix,
             "real symmetric",
@@ -185,7 +187,7 @@ class TestRealMatrixGradients(unittest.TestCase):
             seed=0,
             ensure_distinct=False,
             use_eigh_for_ref=True,
-        )  # ensure_distinct=False as placeholder
+        )
         self._test_grad(
             get_real_symmetric_matrix,
             "real symmetric",
@@ -193,35 +195,35 @@ class TestRealMatrixGradients(unittest.TestCase):
             seed=1,
             ensure_distinct=False,
             use_eigh_for_ref=True,
-        )  # ensure_distinct=False as placeholder
+        )
 
-        # Test with explicitly repeated eigenvalues for symmetric matrix
-        A_rep = torch.diag(torch.tensor([1.0, 1.0, 2.0, 3.0]))
-        A_rep = A_rep.to(torch.float64)  #  Use float64 for gradcheck precision
-        A_rep.requires_grad_(True)
+        a_rep = torch.diag(torch.tensor([1.0, 1.0, 2.0, 3.0]))
+        a_rep = a_rep.to(torch.float64)  #  Use float64 for gradcheck precision
+        a_rep.requires_grad_(True)
 
-        def func_for_eigenvalues_rep(x_mat):
+        def func_for_eigenvalues_rep(x_mat: torch.Tensor) -> torch.Tensor:
             # Eigenvalues of a real symmetric matrix are always real.
-            return torch.sum(eig(x_mat)[0].real)  # .imag will be zero
+            eigenvalues, _ = eig(x_mat)
+            return torch.sum(eigenvalues.real)  # .imag will be zero
 
         try:
             torch.autograd.gradcheck(
-                func_for_eigenvalues_rep, A_rep, eps=1e-7, atol=1e-5, nondet_tol=1e-6
+                func_for_eigenvalues_rep, a_rep, eps=1e-7, atol=1e-5, nondet_tol=1e-6,
             )
-            print(
-                "Gradcheck eigenvalues: real symmetric (repeated, diag) - PASSED."
+        except RuntimeError as e:
+            # T201: print("Gradcheck eigenvalues: real symm. (rep, diag) - FAILED.")
+            # T201: print(f"Error: {e}")
+            self.fail(
+                f"Gradcheck real symm. (repeated, diag) failed. Error: {e}",
             )
-        except Exception as e:
-            print("Gradcheck eigenvalues: real symmetric (repeated, diag) - FAILED.")
-            print(f"Error: {e}") # Print full error separately
-            self.fail("Gradcheck real symm. (rep, diag) failed. See logs.")
 
         # Eigenvector gradcheck for repeated eigenvalues is often
         # problematic and typically skipped or handled with specific
         # projections. Skipping for this matrix.
 
-    def test_real_nonsymmetric_grads(self):
-        print("\nTesting Real Non-Symmetric Matrix Gradients:")
+    def test_real_nonsymmetric_grads(self) -> None:
+        """Test gradients for real non-symmetric matrices."""
+        # T201: print("\nTesting Real Non-Symmetric Matrix Gradients:")
         self._test_grad(
             get_real_nonsymmetric_matrix,
             "real non-symmetric (distinct)",
@@ -236,92 +238,78 @@ class TestRealMatrixGradients(unittest.TestCase):
             seed=1,
             ensure_distinct=True,
         )
-        # Test with (potentially, less controlled) non-distinct eigenvalues
-        # self._test_grad(
-        #     get_real_nonsymmetric_matrix,
-        #     "real non-symmetric (potentially non-distinct)",
-        #     n=4,
-        #     seed=2,
-        #     ensure_distinct=False
-        # )
 
 
 class TestComplexMatrixGradients(unittest.TestCase):
+    """Tests for complex matrix gradient computations."""
+
     def _test_grad_complex(
         self,
-        A_gen_func,
-        matrix_type_str,
-        n=3,
-        seed=0,
-        ensure_distinct=True,
-        use_eigh_for_ref=False,
-    ):
+        a_gen_func: Callable,
+        matrix_type_str: str,
+        n: int = 3,
+        seed: Optional[int] = 0,
+        ensure_distinct: bool = True,
+        use_eigh_for_ref: bool = False,
+    ) -> None:
+        """Test gradients for a given complex matrix type."""
         torch.manual_seed(seed)
-        # Adapt for generators that don't take ensure_distinct
         if (
             matrix_type_str == "complex hermitian"
             or matrix_type_str == "complex symmetric"
         ):
-            A = A_gen_func(n, seed=seed)
+            a_matrix = a_gen_func(n, seed=seed)
         else:  # complex non-symmetric
-            A = A_gen_func(n, seed=seed, ensure_distinct_eigenvalues=ensure_distinct)
+            a_matrix = a_gen_func(
+                n, seed=seed, ensure_distinct_eigenvalues=ensure_distinct,
+            )
 
-        A = A.to(torch.complex128)  # Use complex128 for gradcheck precision
-        A.requires_grad_(True)
+        a_matrix = a_matrix.to(torch.complex128)  # Use complex128 for gradcheck
+        a_matrix.requires_grad_(True)
 
-        def func_for_eigenvalues(x_mat):
-            # Loss that sums real and imaginary parts of eigenvalues
-            return torch.sum(eig(x_mat)[0].real) + torch.sum(eig(x_mat)[0].imag)
+        def func_for_eigenvalues(x_mat: torch.Tensor) -> torch.Tensor:
+            eigenvalues, _ = eig(x_mat)
+            return torch.sum(eigenvalues.real) + torch.sum(eigenvalues.imag)
 
-        def func_for_eigenvectors(x_mat):
-            # Loss that sums real and imaginary parts of eigenvectors
-            return torch.sum(eig(x_mat)[1].real) + torch.sum(eig(x_mat)[1].imag)
+        def func_for_eigenvectors(x_mat: torch.Tensor) -> torch.Tensor:
+            _, eigenvectors = eig(x_mat)
+            return torch.sum(eigenvectors.real) + torch.sum(eigenvectors.imag)
 
-        # Gradcheck for eigenvalues
         try:
             torch.autograd.gradcheck(
-                func_for_eigenvalues, A, eps=1e-7, atol=1e-5, nondet_tol=1e-6
+                func_for_eigenvalues, a_matrix, eps=1e-7, atol=1e-5, nondet_tol=1e-6,
             )
-            print(
-                f"Gradcheck for eigenvalues passed for {matrix_type_str} "
-                "matrix (complex)."
-            )
-        except Exception as e:
+        except RuntimeError as e:
             err_msg = (
-                f"eigenvalues FAILED for {matrix_type_str} "
-                f"matrix (complex): {e}"
+                f"eigenvalues FAILED for {matrix_type_str} matrix (complex)"
             )
-            print(f"Gradcheck for {err_msg}")
-            self.fail(f"Gradcheck for {err_msg}")
+            # T201: print(f"Gradcheck for {err_msg}: {e}")
+            self.fail(f"Gradcheck for {err_msg}: {e}")
 
-        # Gradcheck for eigenvectors
         if ensure_distinct or use_eigh_for_ref:
             try:
                 torch.autograd.gradcheck(
-                    func_for_eigenvectors, A, eps=1e-7, atol=1e-4, nondet_tol=1e-5
-                )  # Higher atol
-                print(
-                    f"Gradcheck for eigenvectors passed for {matrix_type_str} "
-                    "matrix (complex)."
+                    func_for_eigenvectors,
+                    a_matrix,
+                    eps=1e-7,
+                    atol=1e-4,  # Higher atol
+                    nondet_tol=1e-5,
                 )
-            except Exception as e:
+            except RuntimeError as e:
                 err_msg = (
-                    f"eigenvectors FAILED for {matrix_type_str} "
-                    f"matrix (complex): {e}"
+                    f"eigenvectors FAILED for {matrix_type_str} matrix (complex)"
                 )
-                print(f"Gradcheck for {err_msg}")
-                self.fail(f"Gradcheck for {err_msg}")
-        else:
-            msg = (
-                f"Skipping eigenvector gradcheck for {matrix_type_str} (complex) "
-                "due to potential non-uniqueness."
-            )
-            print(msg)
+                # T201: print(f"Gradcheck for {err_msg}: {e}")
+                self.fail(f"Gradcheck for {err_msg}: {e}")
+        # else:
+            # T201: print(
+            #     f"Skipping eigenvector gradcheck for {matrix_type_str} (complex) "
+            #     "due to potential non-uniqueness."
+            # )
 
-    def test_complex_hermitian_grads(self):
-        print("\nTesting Complex Hermitian Matrix Gradients:")
-        # For Hermitian, eigh handles repeated eigenvalues correctly.
-        # Our custom eig uses torch.linalg.eig.
+    def test_complex_hermitian_grads(self) -> None:
+        """Test gradients for complex Hermitian matrices."""
+        # T201: print("\nTesting Complex Hermitian Matrix Gradients:")
         self._test_grad_complex(
             get_complex_hermitian_matrix,
             "complex hermitian",
@@ -339,39 +327,36 @@ class TestComplexMatrixGradients(unittest.TestCase):
             use_eigh_for_ref=True,
         )
 
-        # Test with explicitly repeated eigenvalues for Hermitian matrix
-        A_rep_c = torch.diag(torch.tensor([1.0, 1.0, 2.0, 3.0], dtype=torch.complex128))
-        A_rep_c.requires_grad_(True)
+        a_rep_c = torch.diag(
+            torch.tensor([1.0, 1.0, 2.0, 3.0], dtype=torch.complex128),
+        )
+        a_rep_c.requires_grad_(True)
 
-        def func_for_eigenvalues_rep_c(x_mat):
-            # Eigenvalues of a Hermitian matrix are always real.
-            return torch.sum(eig(x_mat)[0].real)  # .imag will be zero
+        def func_for_eigenvalues_rep_c(x_mat: torch.Tensor) -> torch.Tensor:
+            eigenvalues, _ = eig(x_mat)
+            return torch.sum(eigenvalues.real)  # .imag will be zero for Hermitian
 
         try:
             torch.autograd.gradcheck(
                 func_for_eigenvalues_rep_c,
-                A_rep_c,
+                a_rep_c,
                 eps=1e-7,
                 atol=1e-5,
                 nondet_tol=1e-6,
             )
-            print(
-                "Gradcheck for eigenvalues passed for complex hermitian "
-                "with repeated eigenvalues (diag)."
-            )
-        except Exception as e:
-            print(
-                "Gradcheck for eigenvalues FAILED for complex hermitian "
-                f"(repeated, diag): {e}"
-            )
+        except RuntimeError as e: # F841: e is now used in the f-string
+            # T201: print(
+            #     "Gradcheck for eigenvalues FAILED for complex hermitian "
+            #     f"(repeated, diag): {e}"
+            # )
             self.fail(
-                "Gradcheck failed for complex hermitian (repeated, diag), see output."
+                f"Gradcheck complex hermitian (repeated, diag) failed. Error: {e}",
             )
         # Skipping eigenvector gradcheck for this case.
 
-    def test_complex_symmetric_grads(self):
-        # Symmetric but not necessarily Hermitian
-        print("\nTesting Complex Symmetric (Non-Hermitian) Matrix Gradients:")
+    def test_complex_symmetric_grads(self) -> None:
+        """Test gradients for complex symmetric (non-Hermitian) matrices."""
+        # T201: print("\nTesting Complex Symmetric (Non-Hermitian) Matrix Gradients:")
         self._test_grad_complex(
             get_complex_symmetric_matrix,
             "complex symmetric",
@@ -387,8 +372,9 @@ class TestComplexMatrixGradients(unittest.TestCase):
             ensure_distinct=True,
         )
 
-    def test_complex_nonsymmetric_grads(self):
-        print("\nTesting Complex Non-Symmetric Matrix Gradients:")
+    def test_complex_nonsymmetric_grads(self) -> None:
+        """Test gradients for complex non-symmetric matrices."""
+        # T201: print("\nTesting Complex Non-Symmetric Matrix Gradients:")
         self._test_grad_complex(
             get_complex_nonsymmetric_matrix,
             "complex non-symmetric (distinct)",
@@ -403,14 +389,6 @@ class TestComplexMatrixGradients(unittest.TestCase):
             seed=31,
             ensure_distinct=True,
         )
-        # Optional: Test with ensure_distinct=False if the generator supports it well
-        # self._test_grad_complex(
-        #    get_complex_nonsymmetric_matrix,
-        #    "complex non-symmetric (potentially non-distinct)",
-        #    n=4,
-        #    seed=32,
-        #    ensure_distinct=False
-        # )
 
 
 if __name__ == "__main__":

@@ -1,34 +1,46 @@
+"""Custom Eigendecomposition Function with Autograd Support."""
+
+from typing import Any, Tuple  # For type hints
+
 import torch
 import torch.autograd
 
+# Type hints are added for clarity. Docstrings are improved.
+
 
 class CustomEig(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, A):
-        """
-        Performs eigenvalue decomposition using torch.linalg.eig.
+    """Custom torch.autograd.Function for eigendecomposition with gradient."""
 
-        Saves the input matrix A, eigenvalues, and eigenvectors for the backward pass.
+    @staticmethod
+    def forward(
+        ctx: Any, a_matrix: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Perform eigenvalue decomposition using torch.linalg.eig.
+
+        Saves the input matrix, eigenvalues, and eigenvectors for the backward pass.
 
         Args:
             ctx: An object that can be used to stash information for backward
                  computation.
-            A (torch.Tensor): A square matrix for which to compute eigenvalues and
-                              eigenvectors.
+            a_matrix (torch.Tensor): A square matrix for which to compute eigenvalues
+                                     and eigenvectors.
 
-        Returns:
-            tuple: (eigenvalues, eigenvectors)
-                   - eigenvalues (torch.Tensor): The eigenvalues of A.
-                   - eigenvectors (torch.Tensor): The eigenvectors of A.
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            - eigenvalues (torch.Tensor): The eigenvalues of `a_matrix`.
+            - eigenvectors (torch.Tensor): The eigenvectors of `a_matrix`.
         """
-        eigenvalues, eigenvectors = torch.linalg.eig(A)
-        ctx.save_for_backward(A, eigenvalues, eigenvectors)
+        eigenvalues, eigenvectors = torch.linalg.eig(a_matrix)
+        ctx.save_for_backward(a_matrix, eigenvalues, eigenvectors)
         return eigenvalues, eigenvectors
 
     @staticmethod
-    def backward(ctx, grad_eigenvalues, grad_eigenvectors):
-        """
-        Computes dL/dA* (gradient of Loss L w.r.t. A.conj()).
+    def backward(
+        ctx: Any, grad_eigenvalues: torch.Tensor, grad_eigenvectors: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute dL/dA* (gradient of Loss L w.r.t. a_matrix.conj()).
+
         Formula used: grad_A_star = V @ (diag(dL/dlambda^*) + S_H) @ V_inv
         where:
             - V is the eigenvector matrix.
@@ -48,19 +60,22 @@ class CustomEig(torch.autograd.Function):
             grad_eigenvalues (torch.Tensor): Gradient dL/dlambda from autograd.
             grad_eigenvectors (torch.Tensor): Gradient dL/dV from autograd.
 
-        Returns:
-            torch.Tensor: dL/dA* (if A is complex) or dL/dA (if A is real).
+        Returns
+        -------
+        torch.Tensor
+            Gradient dL/dA* or dL/dA for complex or real `a_matrix`.
         """
-        A, eigenvalues, eigenvectors = ctx.saved_tensors
+        a_matrix, eigenvalues, eigenvectors = ctx.saved_tensors
 
-        V = eigenvectors
+        v_mat = eigenvectors
         try:
-            V_inv = torch.linalg.inv(V)
+            v_inv_mat = torch.linalg.inv(v_mat)
         except torch.linalg.LinAlgError as e:
-            print(f"Error inverting eigenvector matrix in CustomEig.backward: {e}.")
+            # T201: Print is intentional for critical runtime error
+            print(f"Error inverting eigenvector matrix in CustomEig.backward: {e}.")  # noqa: T201
             # Returning zero gradients as a fallback. This might mask issues
-            # if the matrix A was ill-conditioned for eigendecomposition.
-            return torch.zeros_like(A, dtype=A.dtype)
+            # if the matrix a_matrix was ill-conditioned for eigendecomposition.
+            return torch.zeros_like(a_matrix, dtype=a_matrix.dtype)
 
         # Calculate F matrix
         eigenvalues_col = eigenvalues.unsqueeze(1)
@@ -68,76 +83,77 @@ class CustomEig(torch.autograd.Function):
         eigenvalue_diffs = eigenvalues_row - eigenvalues_col
 
         eps_val = torch.finfo(eigenvalues.real.dtype).eps
-        F_denom_nonzero = torch.where(
+        f_denom_nonzero = torch.where(
             eigenvalue_diffs == 0,
             eps_val * torch.ones_like(eigenvalue_diffs),
             eigenvalue_diffs,
         )
-        F = 1.0 / F_denom_nonzero
-        F.diagonal(dim1=-2, dim2=-1).fill_(0.0)
+        f_mat = 1.0 / f_denom_nonzero
+        f_mat.diagonal(dim1=-2, dim2=-1).fill_(0.0)
 
         # S = (V_inv @ dL/dV^*) * F
-        S = (V_inv @ grad_eigenvectors.conj()) * F
-        S_H = S.conj().T
+        s_matrix = (v_inv_mat @ grad_eigenvectors.conj()) * f_mat
+        s_h_matrix = s_matrix.conj().T
 
         # term_in_paren = torch.diag(dL/dlambda^*) + S_H
         diag_term = torch.diag(grad_eigenvalues.conj())
-        term_in_paren = diag_term + S_H
+        term_in_paren = diag_term + s_h_matrix
 
         # grad_A_star = V @ term_in_paren @ V_inv (This is dL/dA*)
-        grad_A_star = V @ term_in_paren @ V_inv
+        grad_a_star = v_mat @ term_in_paren @ v_inv_mat
 
-        if not A.is_complex():
-            if grad_A_star.imag.abs().max() > 1e-6:  # Heuristic threshold
+        if not a_matrix.is_complex():
+            if grad_a_star.imag.abs().max() > 1e-6:  # Heuristic threshold
                 msg = (
                     "Warning: Input A was real, but grad_A (dL/dA*) has "
-                    f"significant imaginary part: {grad_A_star.imag.abs().max().item()}"
+                    f"significant imaginary part: {grad_a_star.imag.abs().max().item()}"
                 )
-                print(msg)
-            grad_A = grad_A_star.real
+                # T201: Print is intentional warning for user
+                print(msg)  # noqa: T201
+            grad_a = grad_a_star.real
         else:
-            grad_A = grad_A_star
+            grad_a = grad_a_star
 
-        return grad_A.to(A.dtype)
+        return grad_a.to(a_matrix.dtype)
 
 
-def eig(A):
-    """
+def eig(a_matrix: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute the eigenvalue decomposition of a square matrix A.
+
     WARNING: The gradient computation for this function is currently
     experimental and known to be incorrect for many cases (especially
     eigenvectors and complex matrices). Use with extreme caution and
     do not rely on the computed gradients.
 
-    Computes the eigenvalue decomposition of a square matrix A,
-    providing support for automatic differentiation.
-
     This function wraps a custom `torch.autograd.Function` (`CustomEig`)
     to enable gradient computation for the eigendecomposition.
 
     Args:
-        A (torch.Tensor): A square matrix (real or complex).
-                          The matrix should be diagonalizable for meaningful
-                          eigenvector gradients.
+        a_matrix (torch.Tensor): A square matrix (real or complex).
+                                 The matrix should be diagonalizable for meaningful
+                                 eigenvector gradients.
 
-    Returns:
-        tuple: (eigenvalues, eigenvectors)
-               - eigenvalues (torch.Tensor): The eigenvalues of A. For real
-                                           non-symmetric A, eigenvalues can be
-                                           complex. Sorted in no particular order.
-               - eigenvectors (torch.Tensor): The corresponding eigenvectors, where
-                                            the k-th column eigenvectors[:, k] is
-                                            the eigenvector for eigenvalues[k].
-                                            Normalized to unit length.
+    Returns
+    -------
+    Tuple[torch.Tensor, torch.Tensor]
+        - eigenvalues (torch.Tensor): The eigenvalues of `a_matrix`. For real
+                                      non-symmetric `a_matrix`, eigenvalues can be
+                                      complex. Sorted in no particular order.
+        - eigenvectors (torch.Tensor): The corresponding eigenvectors, where
+                                       the k-th column `eigenvectors[:, k]` is
+                                       the eigenvector for `eigenvalues[k]`.
+                                       Normalized to unit length.
 
     Gradient Computation:
-    The backward pass (gradient computation) is implemented in `CustomEig.backward`.
-    - For real `A`, it computes `dL/dA`.
-    - For complex `A`, it computes `dL/dA*` (gradient with respect to the
-      conjugate of `A`), following PyTorch's convention for complex autograd.
-    The gradient formula is designed for matrices with distinct eigenvalues. While
-    numerical stabilization (epsilon) is used for near-repeated eigenvalues,
-    caution is advised for matrices with exactly repeated eigenvalues, as
-    eigenvector gradients are not uniquely defined in such cases. The implemented
-    formula attempts to follow standard approaches for complex variables.
+        The backward pass (gradient computation) is implemented in
+        `CustomEig.backward`.
+        - For real `a_matrix`, it computes `dL/dA`.
+        - For complex `a_matrix`, it computes `dL/dA*` (gradient with respect to the
+          conjugate of `a_matrix`), following PyTorch's convention for complex autograd.
+        The gradient formula is designed for matrices with distinct eigenvalues. While
+        numerical stabilization (epsilon) is used for near-repeated eigenvalues,
+        caution is advised for matrices with exactly repeated eigenvalues, as
+        eigenvector gradients are not uniquely defined in such cases. The implemented
+        formula attempts to follow standard approaches for complex variables.
     """
-    return CustomEig.apply(A)
+    return CustomEig.apply(a_matrix)
