@@ -13,7 +13,8 @@ class CustomEig(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx: Any, a_matrix: torch.Tensor,
+        ctx: Any,
+        a_matrix: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Perform eigenvalue decomposition using torch.linalg.eig.
 
@@ -37,7 +38,9 @@ class CustomEig(torch.autograd.Function):
 
     @staticmethod
     def backward(
-        ctx: Any, grad_eigenvalues: torch.Tensor, grad_eigenvectors: torch.Tensor,
+        ctx: Any,
+        grad_eigenvalues: torch.Tensor,
+        grad_eigenvectors: torch.Tensor,
     ) -> torch.Tensor:
         """Compute dL/dA* (gradient of Loss L w.r.t. a_matrix.conj()).
 
