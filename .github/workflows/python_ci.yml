@@ -26,10 +26,11 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install .[dev]
-        # Install PyTorch separately as it might not be in [dev] or for specific versions
+        # Install PyTorch separately first, as it's a core dependency for fmm_torch
         # Using a version compatible with a wide range of Python versions for CI
         python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+        # Install project with dev dependencies (includes pytest, ruff, mypy, pydocstyle)
+        python -m pip install .[dev]
 
     - name: Check formatting with Ruff
       run: ruff format --check .
@@ -43,9 +44,9 @@ jobs:
     - name: Check docstrings with Pydocstyle
       run: pydocstyle src
 
-    - name: Run fmm_torch tests
+    - name: Run tests with Pytest
       run: |
-        PYTHONPATH=src python -m unittest tests.test_eig.py
+        PYTHONPATH=src pytest tests
 
     # Placeholder for tests until actual tests are added
     # - name: Test with Pytest
