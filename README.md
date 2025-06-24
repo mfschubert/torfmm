@@ -1,3 +1,5 @@
+This repository is an experiment using the Jules async development agent. Please note that due to the experimental nature of this project, the code may be incomplete, contain bugs, or be otherwise unstable.
+
 [![Python CI](https://github.com/your-username/fourier-modal-method-torch/actions/workflows/python_ci.yml/badge.svg)](https://github.com/your-username/fourier-modal-method-torch/actions/workflows/python_ci.yml)
 
 # Fourier Modal Method (FMM) in PyTorch
